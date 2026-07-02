@@ -6,12 +6,20 @@ const syncOutbound = require('../services/syncOutboundService');
 const config = require('../config/config');
 
 function resolveClientId({ client_id, client_code }) {
-  if (client_id) return client_id;
   if (client_code) {
     const client = db.prepare('SELECT id FROM clients WHERE client_code = ? AND active = 1').get(client_code);
-    return client?.id || null;
+    if (client?.id) return client.id;
   }
+  if (client_id) return client_id;
   return null;
+}
+
+function resolveManagedClientId(req) {
+  const fromCode = resolveClientId({
+    client_code: req.body?.client_code || req.query?.client_code
+  });
+  if (fromCode) return fromCode;
+  return req.params.clientId || null;
 }
 
 function assertProxyKey(req) {
@@ -107,18 +115,22 @@ exports.getConfig = async (req, res) => {
 exports.getSettings = async (req, res) => {
   try {
     if (req.query.client_code) assertProxyKey(req);
-    assertCanManageMpesa(req.query.userId, req.params.clientId);
+    const clientId = resolveManagedClientId(req);
+    if (!clientId) {
+      return res.status(400).json({ success: false, error: 'client_id or client_code is required' });
+    }
+    assertCanManageMpesa(req.query.userId, clientId);
 
     if (syncOutbound.isShopMode() && mpesaProxyService.isProxyConfigured()) {
       try {
-        const data = await mpesaProxyService.getSettings(req.params.clientId, req.query.userId);
+        const data = await mpesaProxyService.getSettings(clientId, req.query.userId);
         return res.json({ success: true, data });
       } catch {
         // fall through to local cache
       }
     }
 
-    const masked = mpesaSettingsService.getMaskedSettings(req.params.clientId);
+    const masked = mpesaSettingsService.getMaskedSettings(clientId);
     res.json({ success: true, data: masked });
   } catch (error) {
     res.status(error.status || 500).json({ success: false, error: error.message });
@@ -128,18 +140,22 @@ exports.getSettings = async (req, res) => {
 exports.saveSettings = async (req, res) => {
   try {
     if (req.body.client_code) assertProxyKey(req);
-    assertCanManageMpesa(req.body.updatedBy, req.params.clientId);
+    const clientId = resolveManagedClientId(req);
+    if (!clientId) {
+      return res.status(400).json({ success: false, error: 'client_id or client_code is required' });
+    }
+    assertCanManageMpesa(req.body.updatedBy, clientId);
 
-    const client = db.prepare('SELECT id FROM clients WHERE id = ?').get(req.params.clientId);
+    const client = db.prepare('SELECT id FROM clients WHERE id = ?').get(clientId);
     if (!client) {
       return res.status(404).json({ success: false, error: 'Client not found' });
     }
 
     if (syncOutbound.isShopMode() && mpesaProxyService.isProxyConfigured()) {
-      await mpesaProxyService.saveSettings(req.params.clientId, req.body);
+      await mpesaProxyService.saveSettings(clientId, req.body);
     }
 
-    const data = mpesaSettingsService.saveSettings(req.params.clientId, req.body);
+    const data = mpesaSettingsService.saveSettings(clientId, req.body);
     res.json({ success: true, data });
   } catch (error) {
     res.status(error.status || 500).json({ success: false, error: error.message });
@@ -162,7 +178,8 @@ exports.testAuth = async (req, res) => {
 
     const mpesaConfig = mpesaService.getMpesaConfigForClient(clientId);
     if (!mpesaConfig) {
-      return res.status(503).json({ success: false, error: 'M-Pesa not configured for this shop' });
+      const gap = mpesaSettingsService.describeConfigurationGap(clientId);
+      return res.status(503).json({ success: false, error: gap || 'M-Pesa not configured for this shop' });
     }
 
     const token = await mpesaService.getAccessToken(mpesaConfig);
@@ -205,9 +222,10 @@ exports.stkPush = async (req, res) => {
 
     const publicSettings = mpesaSettingsService.getPublicSettings(clientId);
     if (!publicSettings.enabled || !publicSettings.configured) {
+      const gap = mpesaSettingsService.describeConfigurationGap(clientId);
       return res.status(503).json({
         success: false,
-        error: 'M-Pesa is not enabled for this shop. Ask your shop admin to configure it under M-Pesa setup.'
+        error: gap || 'M-Pesa is not enabled for this shop. Configure it under Admin → M-Pesa.'
       });
     }
 

@@ -17,16 +17,53 @@ function isComplete(row) {
   );
 }
 
+function hasServerCallback() {
+  return Boolean((config.mpesa.callbackUrl || '').trim());
+}
+
+function describeConfigurationGap(clientId) {
+  const row = getRow(clientId);
+  if (!row) {
+    return 'No M-Pesa settings saved for this shop. Open Admin → M-Pesa and save your Daraja credentials.';
+  }
+
+  const missing = [];
+  if (!row.enabled) missing.push('enable M-Pesa in settings');
+  if (!row.shortcode) missing.push('business shortcode');
+  if (!row.consumer_key_enc) missing.push('consumer key');
+  if (!row.consumer_secret_enc) missing.push('consumer secret');
+  if (!row.passkey_enc) missing.push('Lipa Na M-Pesa passkey');
+
+  if (missing.length) {
+    return `M-Pesa setup is incomplete: ${missing.join(', ')}.`;
+  }
+
+  if (!hasServerCallback()) {
+    return 'The hosted server is missing MPESA_CALLBACK_URL in its environment (required for STK push).';
+  }
+
+  return null;
+}
+
 function getPublicSettings(clientId) {
   const row = getRow(clientId);
   if (!row) {
-    return { enabled: false, configured: false, env: 'sandbox', shortcode: null };
+    return {
+      enabled: false,
+      configured: false,
+      env: 'sandbox',
+      shortcode: null,
+      serverCallbackConfigured: hasServerCallback()
+    };
   }
+  const credentialsComplete = isComplete(row);
   return {
     enabled: Boolean(row.enabled),
-    configured: isComplete(row),
+    configured: credentialsComplete && hasServerCallback(),
     env: row.env || 'sandbox',
-    shortcode: row.shortcode || null
+    shortcode: row.shortcode || null,
+    serverCallbackConfigured: hasServerCallback(),
+    credentialsComplete
   };
 }
 
@@ -106,6 +143,19 @@ function saveSettings(clientId, input) {
       ? decrypt(existing.passkey_enc)
       : '';
 
+  if (enabled) {
+    const gaps = [];
+    if (!shortcode) gaps.push('business shortcode');
+    if (!consumerKey) gaps.push('consumer key');
+    if (!consumerSecret) gaps.push('consumer secret');
+    if (!passkey) gaps.push('Lipa Na M-Pesa passkey');
+    if (gaps.length) {
+      const err = new Error(`When M-Pesa is enabled, these fields are required: ${gaps.join(', ')}.`);
+      err.status = 400;
+      throw err;
+    }
+  }
+
   if (existing) {
     db.prepare(`
       UPDATE client_mpesa_settings
@@ -161,5 +211,7 @@ module.exports = {
   getDecryptedConfig,
   saveSettings,
   applyBootstrapSettings,
-  isComplete
+  isComplete,
+  describeConfigurationGap,
+  hasServerCallback
 };

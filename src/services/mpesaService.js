@@ -83,7 +83,8 @@ function buildStkPassword(mpesaConfig, ts) {
 async function initiateStkPush({ clientId, phone, amount, accountReference, transactionDesc }) {
   const mpesaConfig = getMpesaConfigForClient(clientId);
   if (!mpesaConfig) {
-    throw new Error('M-Pesa is not configured for this shop. Ask the system owner to add Daraja credentials.');
+    const gap = mpesaSettingsService.describeConfigurationGap(clientId);
+    throw new Error(gap || 'M-Pesa is not configured for this shop.');
   }
 
   const normalizedPhone = normalizePhone(phone);
