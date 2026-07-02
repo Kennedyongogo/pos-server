@@ -2,7 +2,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
-const dbPath = path.join(__dirname, '..', '..', 'pos-local.db');
+const dbPath = process.env.DB_PATH || path.join(__dirname, '..', '..', 'pos-local.db');
 const db = new Database(dbPath);
 
 db.pragma('journal_mode = WAL');

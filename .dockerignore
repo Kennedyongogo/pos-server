@@ -1,0 +1,9 @@
+node_modules
+npm-debug.log
+.env
+.env.*
+pos-local.db
+pos-local.db-wal
+pos-local.db-shm
+.git
+.gitignore
