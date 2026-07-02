@@ -183,13 +183,59 @@ exports.testAuth = async (req, res) => {
     }
 
     const token = await mpesaService.getAccessToken(mpesaConfig);
+    const stkAudit = mpesaSettingsService.auditStkCredentials(clientId);
     res.json({
       success: true,
       data: {
         env: mpesaConfig.env,
         shortcode: mpesaConfig.shortcode,
         tokenReceived: Boolean(token),
-        message: 'Daraja OAuth OK — credentials are valid for this shop'
+        stkAudit,
+        message: stkAudit.ok
+          ? 'Daraja OAuth OK. STK credentials look valid — try Test STK next.'
+          : 'Daraja OAuth OK, but STK setup still has issues: ' + (stkAudit.issue || 'check passkey')
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+exports.testStk = async (req, res) => {
+  try {
+    if (isProxyRequest(req)) assertProxyKey(req);
+
+    if (syncOutbound.isShopMode() && mpesaProxyService.isProxyConfigured()) {
+      const data = await mpesaProxyService.testStk();
+      return res.json({ success: true, data });
+    }
+
+    const clientId = resolveClientId(req.body);
+    if (!clientId) {
+      return res.status(400).json({ success: false, error: 'client_id or client_code is required' });
+    }
+
+    const audit = mpesaSettingsService.auditStkCredentials(clientId);
+    if (!audit.ok) {
+      return res.status(400).json({
+        success: false,
+        error: audit.issue || 'Fix shortcode and passkey before testing STK'
+      });
+    }
+
+    const data = await mpesaService.initiateStkPush({
+      clientId,
+      phone: '254708374149',
+      amount: 1,
+      accountReference: 'STKTEST',
+      transactionDesc: 'STK Test'
+    });
+
+    res.json({
+      success: true,
+      data: {
+        ...data,
+        message: 'STK sent to sandbox test phone 254708374149 for 1 KES'
       }
     });
   } catch (error) {

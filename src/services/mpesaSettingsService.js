@@ -2,6 +2,10 @@ const { db } = require('../config/database');
 const config = require('../config/config');
 const { encrypt, decrypt, maskSecret } = require('../utils/secretCrypto');
 
+const SANDBOX_SHORTCODE = '174379';
+const SANDBOX_PASSKEY =
+  'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919';
+
 function getRow(clientId) {
   return db.prepare('SELECT * FROM client_mpesa_settings WHERE client_id = ?').get(clientId);
 }
@@ -12,6 +16,40 @@ function normalizeShortcode(value) {
 
 function normalizePasskey(value) {
   return String(value || '').replace(/\s/g, '');
+}
+
+function validatePasskeyShape(passkey) {
+  if (!passkey) return 'Lipa Na M-Pesa passkey is required';
+  if (!/^[a-fA-F0-9]+$/.test(passkey)) {
+    return 'Passkey must be a hex string from Daraja → M-Pesa Express (Lipa Na M-Pesa Online). Do not use Security Credential.';
+  }
+  if (passkey.length !== 64) {
+    return `Passkey length is ${passkey.length}; Daraja passkeys are usually 64 hex characters.`;
+  }
+  return null;
+}
+
+function auditStkCredentials(clientId) {
+  const row = getRow(clientId);
+  if (!row) {
+    return { ok: false, message: 'No M-Pesa settings saved' };
+  }
+
+  const env = (row.env || 'sandbox').toLowerCase();
+  const shortcode = normalizeShortcode(row.shortcode);
+  const passkey = row.passkey_enc ? normalizePasskey(decrypt(row.passkey_enc)) : '';
+  const shapeError = passkey ? validatePasskeyShape(passkey) : 'Passkey not saved';
+
+  return {
+    ok: !shapeError && Boolean(shortcode) && Boolean(passkey),
+    env,
+    shortcode,
+    passkeyLength: passkey.length,
+    passkeyPreview: passkey ? maskSecret(passkey) : '',
+    sandboxShortcodeMatch: env === 'sandbox' ? shortcode === SANDBOX_SHORTCODE : null,
+    sandboxPasskeyMatch: env === 'sandbox' ? passkey === SANDBOX_PASSKEY : null,
+    issue: shapeError || (!shortcode ? 'Shortcode missing' : null)
+  };
 }
 
 function isComplete(row) {
@@ -93,6 +131,9 @@ function getMaskedSettings(clientId) {
   const consumerSecret = row.consumer_secret_enc ? decrypt(row.consumer_secret_enc) : '';
   const passkey = row.passkey_enc ? decrypt(row.passkey_enc) : '';
 
+  const normalizedPasskey = normalizePasskey(passkey);
+  const stkAudit = auditStkCredentials(clientId);
+
   return {
     enabled: Boolean(row.enabled),
     env: row.env || 'sandbox',
@@ -103,7 +144,9 @@ function getMaskedSettings(clientId) {
     configured: isComplete(row),
     hasConsumerKey: Boolean(consumerKey),
     hasConsumerSecret: Boolean(consumerSecret),
-    hasPasskey: Boolean(passkey)
+    hasPasskey: Boolean(passkey),
+    passkeyLength: normalizedPasskey.length,
+    stkAudit
   };
 }
 
@@ -159,6 +202,21 @@ function saveSettings(clientId, input) {
     if (!passkey) gaps.push('Lipa Na M-Pesa passkey');
     if (gaps.length) {
       const err = new Error(`When M-Pesa is enabled, these fields are required: ${gaps.join(', ')}.`);
+      err.status = 400;
+      throw err;
+    }
+
+    const shapeError = validatePasskeyShape(passkey);
+    if (shapeError) {
+      const err = new Error(shapeError);
+      err.status = 400;
+      throw err;
+    }
+
+    if (env === 'sandbox' && shortcode === SANDBOX_SHORTCODE && passkey !== SANDBOX_PASSKEY) {
+      const err = new Error(
+        'Sandbox shortcode 174379 must use the standard Daraja sandbox passkey. Click "Fill sandbox defaults" in M-Pesa setup, or copy the Lipa Na M-Pesa Online passkey from developer.safaricom.co.ke → your app → M-Pesa Express.'
+      );
       err.status = 400;
       throw err;
     }
@@ -221,5 +279,8 @@ module.exports = {
   applyBootstrapSettings,
   isComplete,
   describeConfigurationGap,
-  hasServerCallback
+  hasServerCallback,
+  auditStkCredentials,
+  SANDBOX_SHORTCODE,
+  SANDBOX_PASSKEY
 };

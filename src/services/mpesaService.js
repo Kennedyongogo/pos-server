@@ -23,21 +23,34 @@ function timestamp() {
     hour12: false
   }).formatToParts(new Date());
   const get = (type) => parts.find((p) => p.type === type)?.value || '';
-  return `${get('year')}${get('month')}${get('day')}${get('hour')}${get('minute')}${get('second')}`;
+  let hour = get('hour');
+  if (hour === '24') hour = '00';
+  const ts = `${get('year')}${get('month')}${get('day')}${hour}${get('minute')}${get('second')}`;
+  if (ts.length !== 14) {
+    throw new Error(`Invalid M-Pesa timestamp length (${ts.length})`);
+  }
+  return ts;
 }
 
 function normalizeDarajaSecret(value) {
   return String(value || '').replace(/\s/g, '');
 }
 
-function mapStkError(message) {
+function mapStkError(message, audit) {
   const text = String(message || '');
   if (!/wrong credentials/i.test(text)) return text;
-  return (
-    'STK rejected: wrong shortcode or passkey. OAuth only checks consumer key/secret. ' +
-    'For sandbox use shortcode 174379 and the Lipa Na M-Pesa Online passkey from Daraja ' +
-    '(not the Security Credential). Re-enter passkey in Admin → M-Pesa and save.'
-  );
+
+  let detail =
+    'STK rejected: wrong shortcode or passkey (OAuth only checks consumer key/secret).';
+  if (audit?.env === 'sandbox') {
+    detail += ` Stored shortcode: ${audit.shortcode || '—'}, passkey length: ${audit.passkeyLength || 0}.`;
+    if (audit.sandboxPasskeyMatch === false) {
+      detail += ' Passkey does not match the standard sandbox value — click Fill sandbox defaults and save.';
+    }
+  } else {
+    detail += ' Re-enter shortcode and Lipa Na M-Pesa Online passkey from Daraja, then save.';
+  }
+  return detail;
 }
 
 function normalizePhone(phone) {
@@ -142,7 +155,15 @@ async function initiateStkPush({ clientId, phone, amount, accountReference, tran
       data.ResponseDescription ||
       data.error ||
       'STK push request failed';
-    throw new Error(mapStkError(raw));
+    const audit = mpesaSettingsService.auditStkCredentials(clientId);
+    console.log('M-Pesa STK rejected:', {
+      clientId,
+      shortcode,
+      passkeyLength: passkey.length,
+      env: mpesaConfig.env,
+      daraja: raw
+    });
+    throw new Error(mapStkError(raw, audit));
   }
 
   const checkoutRequestId = data.CheckoutRequestID;

@@ -58,6 +58,16 @@ async function testAuth() {
   return body.data;
 }
 
+async function testStk() {
+  const res = await fetch(`${config.sync.vpsApiUrl}/mpesa/test-stk`, {
+    method: 'POST',
+    headers: syncHeaders(),
+    body: JSON.stringify({ client_code: config.sync.shopClientCode })
+  });
+  const body = await readJson(res);
+  return body.data;
+}
+
 async function getSettings(clientId, userId) {
   const url =
     `${config.sync.vpsApiUrl}/mpesa/settings/${encodeURIComponent(clientId)}` +
@@ -87,5 +97,6 @@ module.exports = {
   saveSettings,
   stkPush,
   getStatus,
-  testAuth
+  testAuth,
+  testStk
 };
