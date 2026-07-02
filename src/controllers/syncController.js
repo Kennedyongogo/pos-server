@@ -30,7 +30,8 @@ exports.bootstrap = (req, res) => {
       data: {
         client: data.client,
         products: data.products,
-        users: data.users
+        users: data.users,
+        mpesa: data.mpesa
       }
     });
   } catch (error) {

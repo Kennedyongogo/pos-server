@@ -1,30 +1,14 @@
-const config = require('../config/config');
+const mpesaSettingsService = require('./mpesaSettingsService');
 
 /** @type {Map<string, object>} */
 const pendingPayments = new Map();
 
-function getMpesaConfig() {
-  const { consumerKey, consumerSecret, shortcode, passkey, callbackUrl, env } = config.mpesa;
-
-  if (!consumerKey || !consumerSecret || !shortcode || !passkey || !callbackUrl) {
-    return null;
-  }
-
-  return {
-    consumerKey,
-    consumerSecret,
-    shortcode,
-    passkey,
-    callbackUrl,
-    env,
-    baseUrl: env === 'production'
-      ? 'https://api.safaricom.co.ke'
-      : 'https://sandbox.safaricom.co.ke'
-  };
+function isConfiguredForClient(clientId) {
+  return Boolean(mpesaSettingsService.getDecryptedConfig(clientId));
 }
 
-function isConfigured() {
-  return Boolean(getMpesaConfig());
+function getMpesaConfigForClient(clientId) {
+  return mpesaSettingsService.getDecryptedConfig(clientId);
 }
 
 function timestamp() {
@@ -53,8 +37,7 @@ async function readJsonResponse(res, label) {
   if (!text || !text.trim()) {
     if (label === 'OAuth' && res.status === 400) {
       throw new Error(
-        'OAuth failed (HTTP 400): Invalid Consumer Key or Consumer Secret. ' +
-        'Open developer.safaricom.co.ke → your sandbox app → copy fresh keys into server/.env and restart.'
+        'OAuth failed (HTTP 400): Invalid Consumer Key or Consumer Secret for this shop.'
       );
     }
     throw new Error(
@@ -97,10 +80,10 @@ function buildStkPassword(mpesaConfig, ts) {
   return Buffer.from(`${mpesaConfig.shortcode}${mpesaConfig.passkey}${ts}`).toString('base64');
 }
 
-async function initiateStkPush({ phone, amount, accountReference, transactionDesc }) {
-  const mpesaConfig = getMpesaConfig();
+async function initiateStkPush({ clientId, phone, amount, accountReference, transactionDesc }) {
+  const mpesaConfig = getMpesaConfigForClient(clientId);
   if (!mpesaConfig) {
-    throw new Error('M-Pesa is not configured on this server (.env missing)');
+    throw new Error('M-Pesa is not configured for this shop. Ask the system owner to add Daraja credentials.');
   }
 
   const normalizedPhone = normalizePhone(phone);
@@ -149,6 +132,7 @@ async function initiateStkPush({ phone, amount, accountReference, transactionDes
   const checkoutRequestId = data.CheckoutRequestID;
   pendingPayments.set(checkoutRequestId, {
     status: 'pending',
+    clientId,
     phone: normalizedPhone,
     amount: kesAmount,
     merchantRequestId: data.MerchantRequestID,
@@ -219,8 +203,8 @@ function getPaymentStatus(checkoutRequestId) {
 }
 
 module.exports = {
-  isConfigured,
-  getMpesaConfig,
+  isConfiguredForClient,
+  getMpesaConfigForClient,
   getAccessToken,
   initiateStkPush,
   handleStkCallback,

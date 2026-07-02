@@ -36,7 +36,7 @@ app.get('/api/health', (req, res) => {
     status: 'online',
     mode: syncStatus.shopMode ? 'shop' : syncStatus.centralMode ? 'central' : 'local',
     serveClient,
-    mpesa: mpesaService.isConfigured(),
+    mpesa: Boolean((config.mpesa.callbackUrl || '').trim()),
     sync: syncStatus,
     timestamp: new Date().toISOString()
   });

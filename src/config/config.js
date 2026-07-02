@@ -20,5 +20,6 @@ module.exports = {
     vpsApiUrl: (process.env.VPS_API_URL || '').trim().replace(/\/$/, ''),
     shopClientCode: (process.env.SHOP_CLIENT_CODE || '').trim(),
     mode: (process.env.POS_MODE || 'local').toLowerCase().trim()
-  }
+  },
+  mpesaEncryptionKey: (process.env.MPESA_ENCRYPTION_KEY || '').trim()
 };

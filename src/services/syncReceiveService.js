@@ -1,5 +1,6 @@
 const { v4: uuidv4 } = require('uuid');
 const { db } = require('../config/database');
+const mpesaSettingsService = require('./mpesaSettingsService');
 
 function getClientByCode(clientCode) {
   return db.prepare('SELECT * FROM clients WHERE client_code = ? AND active = 1').get(clientCode);
@@ -163,7 +164,9 @@ function getBootstrapData(clientCode) {
     ORDER BY created_at
   `).all(client.id);
 
-  return { client, products, users };
+  const mpesa = mpesaSettingsService.getPublicSettings(client.id);
+
+  return { client, products, users, mpesa };
 }
 
 function processPush(clientCode, items) {

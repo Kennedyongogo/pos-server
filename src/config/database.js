@@ -95,6 +95,20 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS client_mpesa_settings (
+    client_id TEXT PRIMARY KEY,
+    enabled INTEGER DEFAULT 0,
+    env TEXT DEFAULT 'sandbox',
+    shortcode TEXT,
+    consumer_key_enc TEXT,
+    consumer_secret_enc TEXT,
+    passkey_enc TEXT,
+    updated_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (client_id) REFERENCES clients(id)
+  );
+`);
+
 function seedSystemOwner() {
   const ownerExists = db.prepare("SELECT id FROM users WHERE role = 'system_owner'").get();
   if (ownerExists) return;

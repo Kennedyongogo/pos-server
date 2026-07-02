@@ -1,6 +1,7 @@
 const config = require('../config/config');
 const { db } = require('../config/database');
 const syncReceive = require('./syncReceiveService');
+const mpesaSettingsService = require('./mpesaSettingsService');
 
 let lastSyncAt = null;
 let lastSyncError = null;
@@ -78,7 +79,7 @@ function getLocalClient() {
 }
 
 function upsertBootstrapData(data) {
-  const { client, products, users } = data;
+  const { client, products, users, mpesa } = data;
   const run = db.transaction(() => {
     const existingClient = db.prepare('SELECT id FROM clients WHERE client_code = ?').get(client.client_code);
     if (existingClient && existingClient.id !== client.id) {
@@ -153,6 +154,10 @@ function upsertBootstrapData(data) {
           user.active ?? 1
         );
       }
+    }
+
+    if (mpesa) {
+      mpesaSettingsService.applyBootstrapSettings(client.id, mpesa);
     }
   });
 
