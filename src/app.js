@@ -11,6 +11,8 @@ const authRoutes = require('./routes/authRoutes');
 const productsRoutes = require('./routes/productsRoutes');
 const transactionsRoutes = require('./routes/transactionsRoutes');
 const mpesaRoutes = require('./routes/mpesaRoutes');
+const syncRoutes = require('./routes/syncRoutes');
+const syncOutbound = require('./services/syncOutboundService');
 
 const app = express();
 
@@ -26,13 +28,16 @@ app.use('/api/auth', authRoutes);
 app.use('/api/products', productsRoutes);
 app.use('/api/transactions', transactionsRoutes);
 app.use('/api/mpesa', mpesaRoutes);
+app.use('/api/sync', syncRoutes);
 
 app.get('/api/health', (req, res) => {
+  const syncStatus = syncOutbound.getSyncStatus();
   res.json({
     status: 'online',
-    mode: 'local',
+    mode: syncStatus.shopMode ? 'shop' : syncStatus.centralMode ? 'central' : 'local',
     serveClient,
     mpesa: mpesaService.isConfigured(),
+    sync: syncStatus,
     timestamp: new Date().toISOString()
   });
 });
@@ -58,7 +63,26 @@ app.use(errorHandler);
 
 async function initializeApp() {
   const { testConnections } = require('./config/database');
+  const syncOutbound = require('./services/syncOutboundService');
+
   await testConnections();
+
+  if (syncOutbound.isShopMode()) {
+    try {
+      console.log('Shop sync: bootstrapping from VPS...');
+      await syncOutbound.bootstrapFromVps();
+      console.log('Shop sync: bootstrap OK');
+    } catch (error) {
+      console.log('Shop sync bootstrap skipped:', error.message);
+    }
+
+    setInterval(() => {
+      syncOutbound.flushSyncQueue().catch((err) => {
+        console.log('Background sync failed:', err.message);
+      });
+    }, 60000);
+  }
+
   return true;
 }
 

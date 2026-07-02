@@ -14,5 +14,11 @@ module.exports = {
     passkey: (process.env.MPESA_PASSKEY || '').trim(),
     callbackUrl: (process.env.MPESA_CALLBACK_URL || '').trim(),
     env: (process.env.MPESA_ENV || 'sandbox').toLowerCase().trim()
+  },
+  sync: {
+    apiKey: (process.env.SYNC_API_KEY || '').trim(),
+    vpsApiUrl: (process.env.VPS_API_URL || '').trim().replace(/\/$/, ''),
+    shopClientCode: (process.env.SHOP_CLIENT_CODE || '').trim(),
+    mode: (process.env.POS_MODE || 'local').toLowerCase().trim()
   }
 };

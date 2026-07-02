@@ -107,6 +107,7 @@ exports.createClient = (req, res) => {
     res.status(201).json({
       success: true,
       data: {
+        client_id: clientId,
         client_code: clientCode,
         business_name,
         admin_username: actualUsername,
