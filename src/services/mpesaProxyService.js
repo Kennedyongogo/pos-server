@@ -58,9 +58,33 @@ async function testAuth() {
   return body.data;
 }
 
+async function getSettings(clientId, userId) {
+  const url =
+    `${config.sync.vpsApiUrl}/mpesa/settings/${encodeURIComponent(clientId)}` +
+    `?userId=${encodeURIComponent(userId)}&client_code=${encodeURIComponent(config.sync.shopClientCode)}`;
+  const res = await fetch(url, { headers: syncHeaders() });
+  const body = await readJson(res);
+  return body.data;
+}
+
+async function saveSettings(clientId, payload) {
+  const res = await fetch(`${config.sync.vpsApiUrl}/mpesa/settings/${encodeURIComponent(clientId)}`, {
+    method: 'PUT',
+    headers: syncHeaders(),
+    body: JSON.stringify({
+      ...payload,
+      client_code: config.sync.shopClientCode
+    })
+  });
+  const body = await readJson(res);
+  return body.data;
+}
+
 module.exports = {
   isProxyConfigured,
   getConfig,
+  getSettings,
+  saveSettings,
   stkPush,
   getStatus,
   testAuth

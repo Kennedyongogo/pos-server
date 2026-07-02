@@ -28,13 +28,26 @@ function isProxyRequest(req) {
   return Boolean(req.body?.client_code || req.query?.client_code);
 }
 
-function assertSystemOwner(userId) {
-  const user = db.prepare("SELECT id FROM users WHERE id = ? AND role = 'system_owner'").get(userId);
+function assertCanManageMpesa(userId, clientId) {
+  if (!userId || !clientId) {
+    const err = new Error('userId and clientId are required');
+    err.status = 400;
+    throw err;
+  }
+
+  const user = db.prepare('SELECT * FROM users WHERE id = ? AND active = 1').get(userId);
   if (!user) {
-    const err = new Error('Only system owner can manage M-Pesa settings');
+    const err = new Error('User not found');
     err.status = 403;
     throw err;
   }
+
+  if (user.role === 'system_owner') return;
+  if (user.role === 'admin' && user.client_id === clientId) return;
+
+  const err = new Error('Only shop admin can manage M-Pesa for this business');
+  err.status = 403;
+  throw err;
 }
 
 exports.getConfig = async (req, res) => {
@@ -91,9 +104,20 @@ exports.getConfig = async (req, res) => {
   }
 };
 
-exports.getSettings = (req, res) => {
+exports.getSettings = async (req, res) => {
   try {
-    assertSystemOwner(req.query.userId);
+    if (req.query.client_code) assertProxyKey(req);
+    assertCanManageMpesa(req.query.userId, req.params.clientId);
+
+    if (syncOutbound.isShopMode() && mpesaProxyService.isProxyConfigured()) {
+      try {
+        const data = await mpesaProxyService.getSettings(req.params.clientId, req.query.userId);
+        return res.json({ success: true, data });
+      } catch {
+        // fall through to local cache
+      }
+    }
+
     const masked = mpesaSettingsService.getMaskedSettings(req.params.clientId);
     res.json({ success: true, data: masked });
   } catch (error) {
@@ -101,12 +125,18 @@ exports.getSettings = (req, res) => {
   }
 };
 
-exports.saveSettings = (req, res) => {
+exports.saveSettings = async (req, res) => {
   try {
-    assertSystemOwner(req.body.updatedBy);
+    if (req.body.client_code) assertProxyKey(req);
+    assertCanManageMpesa(req.body.updatedBy, req.params.clientId);
+
     const client = db.prepare('SELECT id FROM clients WHERE id = ?').get(req.params.clientId);
     if (!client) {
       return res.status(404).json({ success: false, error: 'Client not found' });
+    }
+
+    if (syncOutbound.isShopMode() && mpesaProxyService.isProxyConfigured()) {
+      await mpesaProxyService.saveSettings(req.params.clientId, req.body);
     }
 
     const data = mpesaSettingsService.saveSettings(req.params.clientId, req.body);
@@ -177,7 +207,7 @@ exports.stkPush = async (req, res) => {
     if (!publicSettings.enabled || !publicSettings.configured) {
       return res.status(503).json({
         success: false,
-        error: 'M-Pesa is not enabled for this shop. Configure it in Client Management on the hosted server.'
+        error: 'M-Pesa is not enabled for this shop. Ask your shop admin to configure it under M-Pesa setup.'
       });
     }
 
