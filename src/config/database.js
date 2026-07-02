@@ -109,12 +109,6 @@ function seedSystemOwner() {
     INSERT INTO users (id, client_id, username, password, full_name, role)
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(uuidv4(), systemClientId, 'carlyvne_admin', 'Carlyvne@2026', 'Carlynve Owner', 'system_owner');
-
-  console.log('============================================');
-  console.log('SYSTEM OWNER ACCOUNT CREATED');
-  console.log('Username: carlyvne_admin');
-  console.log('Password: Carlyvne@2026');
-  console.log('============================================');
 }
 
 async function testConnections() {

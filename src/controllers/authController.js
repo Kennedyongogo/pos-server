@@ -1,8 +1,39 @@
 const { v4: uuidv4 } = require('uuid');
 const { db } = require('../config/database');
 const { queueUserSync } = require('../services/userSyncHelper');
+const syncOutbound = require('../services/syncOutboundService');
 
-exports.login = (req, res) => {
+function findShopUser(clientCode, username, password) {
+  const client = db.prepare('SELECT * FROM clients WHERE client_code = ? AND active = 1').get(clientCode);
+  if (!client) {
+    return { error: 'Invalid client code', status: 401 };
+  }
+
+  const user = db.prepare(`
+    SELECT u.*, c.business_name, c.client_code
+    FROM users u
+    JOIN clients c ON u.client_id = c.id
+    WHERE u.client_id = ? AND u.username = ? AND u.password = ? AND u.active = 1
+  `).get(client.id, username, password);
+
+  if (!user) {
+    return { error: 'Invalid username or password', status: 401 };
+  }
+
+  return {
+    user: {
+      id: user.id,
+      username: user.username,
+      full_name: user.full_name,
+      role: user.role,
+      client_id: user.client_id,
+      client_code: client.client_code,
+      business_name: client.business_name
+    }
+  };
+}
+
+exports.login = async (req, res) => {
   try {
     const { username, password, client_code } = req.body;
 
@@ -36,34 +67,21 @@ exports.login = (req, res) => {
       return res.status(400).json({ success: false, error: 'Client code is required' });
     }
 
-    const client = db.prepare('SELECT * FROM clients WHERE client_code = ? AND active = 1').get(client_code);
-    if (!client) {
-      return res.status(401).json({ success: false, error: 'Invalid client code' });
+    if (syncOutbound.isShopMode()) {
+      await syncOutbound.pullUsersFromVps().catch(() => {});
     }
 
-    const user = db.prepare(`
-      SELECT u.*, c.business_name, c.client_code
-      FROM users u
-      JOIN clients c ON u.client_id = c.id
-      WHERE u.client_id = ? AND u.username = ? AND u.password = ? AND u.active = 1
-    `).get(client.id, username, password);
-
-    if (!user) {
-      return res.status(401).json({ success: false, error: 'Invalid username or password' });
+    let result = findShopUser(client_code, username, password);
+    if (result.error && syncOutbound.isShopMode()) {
+      await syncOutbound.pullUsersFromVps().catch(() => {});
+      result = findShopUser(client_code, username, password);
     }
 
-    res.json({
-      success: true,
-      data: {
-        id: user.id,
-        username: user.username,
-        full_name: user.full_name,
-        role: user.role,
-        client_id: user.client_id,
-        client_code: client.client_code,
-        business_name: client.business_name
-      }
-    });
+    if (result.error) {
+      return res.status(result.status).json({ success: false, error: result.error });
+    }
+
+    res.json({ success: true, data: result.user });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
