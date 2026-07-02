@@ -1,2 +1,7 @@
 .env
 node_modules/
+
+# Local SQLite (shop data — never commit)
+pos-local.db
+pos-local.db-wal
+pos-local.db-shm
