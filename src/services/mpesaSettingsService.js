@@ -6,6 +6,14 @@ function getRow(clientId) {
   return db.prepare('SELECT * FROM client_mpesa_settings WHERE client_id = ?').get(clientId);
 }
 
+function normalizeShortcode(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function normalizePasskey(value) {
+  return String(value || '').replace(/\s/g, '');
+}
+
 function isComplete(row) {
   return Boolean(
     row &&
@@ -110,8 +118,8 @@ function getDecryptedConfig(clientId) {
     clientId,
     consumerKey: decrypt(row.consumer_key_enc),
     consumerSecret: decrypt(row.consumer_secret_enc),
-    shortcode: row.shortcode,
-    passkey: decrypt(row.passkey_enc),
+    shortcode: normalizeShortcode(row.shortcode),
+    passkey: normalizePasskey(decrypt(row.passkey_enc)),
     callbackUrl,
     env: (row.env || 'sandbox').toLowerCase(),
     baseUrl:
@@ -125,7 +133,7 @@ function saveSettings(clientId, input) {
   const existing = getRow(clientId);
   const enabled = input.enabled ? 1 : 0;
   const env = (input.env || 'sandbox').toLowerCase() === 'production' ? 'production' : 'sandbox';
-  const shortcode = String(input.shortcode || '').trim();
+  const shortcode = normalizeShortcode(input.shortcode);
 
   const consumerKey = input.consumerKey?.trim()
     ? input.consumerKey.trim()
@@ -138,9 +146,9 @@ function saveSettings(clientId, input) {
       ? decrypt(existing.consumer_secret_enc)
       : '';
   const passkey = input.passkey?.trim()
-    ? input.passkey.trim()
+    ? normalizePasskey(input.passkey)
     : existing?.passkey_enc
-      ? decrypt(existing.passkey_enc)
+      ? normalizePasskey(decrypt(existing.passkey_enc))
       : '';
 
   if (enabled) {

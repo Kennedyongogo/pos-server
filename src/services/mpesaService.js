@@ -12,15 +12,31 @@ function getMpesaConfigForClient(clientId) {
 }
 
 function timestamp() {
-  const now = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Africa/Nairobi',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).formatToParts(new Date());
+  const get = (type) => parts.find((p) => p.type === type)?.value || '';
+  return `${get('year')}${get('month')}${get('day')}${get('hour')}${get('minute')}${get('second')}`;
+}
+
+function normalizeDarajaSecret(value) {
+  return String(value || '').replace(/\s/g, '');
+}
+
+function mapStkError(message) {
+  const text = String(message || '');
+  if (!/wrong credentials/i.test(text)) return text;
   return (
-    String(now.getFullYear()) +
-    pad(now.getMonth() + 1) +
-    pad(now.getDate()) +
-    pad(now.getHours()) +
-    pad(now.getMinutes()) +
-    pad(now.getSeconds())
+    'STK rejected: wrong shortcode or passkey. OAuth only checks consumer key/secret. ' +
+    'For sandbox use shortcode 174379 and the Lipa Na M-Pesa Online passkey from Daraja ' +
+    '(not the Security Credential). Re-enter passkey in Admin → M-Pesa and save.'
   );
 }
 
@@ -76,9 +92,6 @@ async function getAccessToken(mpesaConfig) {
   return data.access_token;
 }
 
-function buildStkPassword(mpesaConfig, ts) {
-  return Buffer.from(`${mpesaConfig.shortcode}${mpesaConfig.passkey}${ts}`).toString('base64');
-}
 
 async function initiateStkPush({ clientId, phone, amount, accountReference, transactionDesc }) {
   const mpesaConfig = getMpesaConfigForClient(clientId);
@@ -93,18 +106,20 @@ async function initiateStkPush({ clientId, phone, amount, accountReference, tran
   }
 
   const kesAmount = Math.max(1, Math.round(Number(amount)));
+  const shortcode = normalizeDarajaSecret(mpesaConfig.shortcode);
+  const passkey = normalizeDarajaSecret(mpesaConfig.passkey);
   const token = await getAccessToken(mpesaConfig);
   const ts = timestamp();
-  const password = buildStkPassword(mpesaConfig, ts);
+  const password = Buffer.from(`${shortcode}${passkey}${ts}`).toString('base64');
 
   const body = {
-    BusinessShortCode: mpesaConfig.shortcode,
+    BusinessShortCode: shortcode,
     Password: password,
     Timestamp: ts,
     TransactionType: 'CustomerPayBillOnline',
     Amount: kesAmount,
     PartyA: normalizedPhone,
-    PartyB: mpesaConfig.shortcode,
+    PartyB: shortcode,
     PhoneNumber: normalizedPhone,
     CallBackURL: mpesaConfig.callbackUrl,
     AccountReference: String(accountReference || 'POS').substring(0, 12),
@@ -122,12 +137,12 @@ async function initiateStkPush({ clientId, phone, amount, accountReference, tran
 
   const data = await readJsonResponse(res, 'STK push');
   if (!res.ok || data.ResponseCode !== '0') {
-    throw new Error(
+    const raw =
       data.errorMessage ||
       data.ResponseDescription ||
       data.error ||
-      'STK push request failed'
-    );
+      'STK push request failed';
+    throw new Error(mapStkError(raw));
   }
 
   const checkoutRequestId = data.CheckoutRequestID;
