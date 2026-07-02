@@ -77,8 +77,11 @@ async function initializeApp() {
     }
 
     setInterval(() => {
+      syncOutbound.pullUsersFromVps().catch(() => {});
       syncOutbound.flushSyncQueue().catch((err) => {
-        console.log('Background sync failed:', err.message);
+        if (syncOutbound.getSyncStatus().pending > 0) {
+          console.log('Background sync failed:', err.message);
+        }
       });
     }, 60000);
   }

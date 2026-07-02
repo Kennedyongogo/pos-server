@@ -9,5 +9,6 @@ router.post('/push', ctrl.push);
 router.post('/bootstrap', ctrl.bootstrap);
 router.post('/bootstrap-local', ctrl.bootstrapLocal);
 router.get('/products', ctrl.products);
+router.get('/users', ctrl.users);
 
 module.exports = router;

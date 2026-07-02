@@ -48,6 +48,25 @@ function packageQueueItem(row) {
     };
   }
 
+  if (row.table_name === 'users') {
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(row.record_id);
+    if (!user) return null;
+    return {
+      queue_id: row.id,
+      table_name: row.table_name,
+      record_id: row.record_id,
+      action: row.action,
+      payload: {
+        id: user.id,
+        username: user.username,
+        password: user.password,
+        full_name: user.full_name,
+        role: user.role,
+        active: user.active
+      }
+    };
+  }
+
   return null;
 }
 
@@ -239,6 +258,31 @@ async function flushSyncQueue() {
   };
 }
 
+async function pullUsersFromVps() {
+  if (!isShopMode()) return { pulled: 0 };
+
+  const res = await fetch(
+    `${config.sync.vpsApiUrl}/sync/users?client_code=${encodeURIComponent(config.sync.shopClientCode)}`,
+    { headers: syncHeaders() }
+  );
+
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body.success) {
+    throw new Error(body.error || `User pull failed (HTTP ${res.status})`);
+  }
+
+  const client = getLocalClient();
+  if (!client) return { pulled: 0 };
+
+  let pulled = 0;
+  for (const user of body.data || []) {
+    syncReceive.applyUser(client.id, user, user.active === 0 ? 'deactivate' : 'update');
+    pulled += 1;
+  }
+
+  return { pulled };
+}
+
 async function pullProductsFromVps() {
   if (!isShopMode()) return { pulled: 0 };
 
@@ -285,5 +329,6 @@ module.exports = {
   bootstrapFromVps,
   flushSyncQueue,
   pullProductsFromVps,
+  pullUsersFromVps,
   getSyncStatus
 };

@@ -82,6 +82,22 @@ exports.products = (req, res) => {
   }
 };
 
+exports.users = (req, res) => {
+  try {
+    if (!validateSyncKey(req, res)) return;
+
+    const { client_code } = req.query;
+    const users = syncReceive.getUsersForClient(client_code);
+    if (!users) {
+      return res.status(404).json({ success: false, error: 'Client not found' });
+    }
+
+    res.json({ success: true, data: users });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
 exports.status = (req, res) => {
   res.json({
     success: true,
@@ -102,6 +118,7 @@ exports.flush = async (req, res) => {
     }
 
     await syncOutbound.pullProductsFromVps().catch(() => {});
+    await syncOutbound.pullUsersFromVps().catch(() => {});
     const result = await syncOutbound.flushSyncQueue();
     res.json({ success: true, data: result });
   } catch (error) {

@@ -87,12 +87,61 @@ function applyTransaction(clientId, payload) {
   return { action: 'created' };
 }
 
+function applyUser(clientId, user, action) {
+  if (!user?.id || !['admin', 'cashier'].includes(user.role)) {
+    return { action: 'ignored' };
+  }
+
+  const existing = db.prepare('SELECT id FROM users WHERE id = ?').get(user.id);
+
+  if (action === 'deactivate' || user.active === 0) {
+    if (existing) {
+      db.prepare('UPDATE users SET active = 0 WHERE id = ? AND client_id = ?').run(user.id, clientId);
+      return { action: 'deactivated' };
+    }
+    return { action: 'skipped' };
+  }
+
+  if (existing) {
+    db.prepare(`
+      UPDATE users SET username=?, password=?, full_name=?, role=?, active=?
+      WHERE id=? AND client_id=?
+    `).run(
+      user.username,
+      user.password,
+      user.full_name,
+      user.role,
+      user.active ?? 1,
+      user.id,
+      clientId
+    );
+    return { action: 'updated' };
+  }
+
+  db.prepare(`
+    INSERT INTO users (id, client_id, username, password, full_name, role, active)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    user.id,
+    clientId,
+    user.username,
+    user.password,
+    user.full_name,
+    user.role,
+    user.active ?? 1
+  );
+  return { action: 'created' };
+}
+
 function applySyncItem(clientId, item) {
   if (item.table_name === 'products') {
     return applyProduct(clientId, item.payload);
   }
   if (item.table_name === 'transactions') {
     return applyTransaction(clientId, item.payload);
+  }
+  if (item.table_name === 'users') {
+    return applyUser(clientId, item.payload, item.action);
   }
   return { action: 'ignored' };
 }
@@ -136,10 +185,26 @@ function processPush(clientCode, items) {
   return { client_id: client.id, results };
 }
 
+function getUsersForClient(clientCode) {
+  const client = getClientByCode(clientCode);
+  if (!client) return null;
+
+  const users = db.prepare(`
+    SELECT id, username, password, full_name, role, active
+    FROM users
+    WHERE client_id = ? AND role IN ('admin', 'cashier')
+    ORDER BY created_at
+  `).all(client.id);
+
+  return users;
+}
+
 module.exports = {
   getClientByCode,
   getBootstrapData,
+  getUsersForClient,
   processPush,
   applyProduct,
-  applyTransaction
+  applyTransaction,
+  applyUser
 };

@@ -1,5 +1,6 @@
 const { v4: uuidv4 } = require('uuid');
 const { db } = require('../config/database');
+const { queueUserSync } = require('../services/userSyncHelper');
 
 exports.login = (req, res) => {
   try {
@@ -206,6 +207,8 @@ exports.createUser = (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(id, client_id, username, password, full_name, userRole);
 
+    queueUserSync(id, 'create');
+
     const user = db.prepare('SELECT id, username, full_name, role, created_at FROM users WHERE id = ?').get(id);
     res.status(201).json({ success: true, data: user });
   } catch (error) {
@@ -233,7 +236,38 @@ exports.deactivateUser = (req, res) => {
     }
 
     db.prepare('UPDATE users SET active = 0 WHERE id = ?').run(req.params.id);
+    queueUserSync(req.params.id, 'deactivate');
     res.json({ success: true, message: 'User deactivated' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+exports.resetPassword = (req, res) => {
+  try {
+    const { password, updatedBy } = req.body;
+    if (!password || String(password).length < 4) {
+      return res.status(400).json({ success: false, error: 'Password must be at least 4 characters' });
+    }
+
+    const targetUser = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+    if (!targetUser) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    if (targetUser.role === 'system_owner') {
+      return res.status(400).json({ success: false, error: 'Cannot reset system owner password here' });
+    }
+
+    const admin = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'admin' AND active = 1").get(updatedBy);
+    if (!admin || admin.client_id !== targetUser.client_id) {
+      return res.status(403).json({ success: false, error: 'Only shop admin can reset passwords' });
+    }
+
+    db.prepare('UPDATE users SET password = ? WHERE id = ?').run(password, req.params.id);
+    queueUserSync(req.params.id, 'update');
+
+    res.json({ success: true, message: 'Password updated' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
